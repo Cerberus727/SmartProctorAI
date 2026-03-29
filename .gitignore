@@ -1,0 +1,18 @@
+# Environments
+venv/
+env/
+.env
+__pycache__/
+*.pyc
+
+# Logs and Data
+events.json
+session_summary.json
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
