@@ -42,25 +42,47 @@ def draw_tracks(frame, tracks, debug=False):
 
 def draw_ui(frame, data):
     # Base padding
+    h, w, _ = frame.shape
     y_offset = 30
     x_offset = 15
     line_height = 25
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.6
+    font_scale = 0.7
     font_thickness = 2
     
     debug_mode = data.get('debug', False)
 
-    # Display Risk Score
+    # 1. Display Formatted Risk Score
     risk = data.get('risk_score', 0.0)
-    risk_color = (0, 0, 255) if risk > 0.5 else (0, 255, 255)
+    risk_color = (0, 0, 255) if risk > 0.5 else ((0, 165, 255) if risk > 0.2 else (0, 255, 0))
     cv2.putText(frame, f"Risk Score: {risk:.2f}", (x_offset, y_offset), font, font_scale, risk_color, font_thickness)
-    y_offset += line_height
+    y_offset += line_height + 5
 
-    # Display Gaze
+    # 2. Display Temporal Model Prediction
+    temporal_pred = data.get('temporal_pred')
+    if isinstance(temporal_pred, dict):
+        temp_score = temporal_pred['score']
+        temp_state = temporal_pred['state']
+    else:
+        temp_score = temporal_pred if temporal_pred is not None else 0.0
+        temp_state = 'RED' if temp_score > 0.6 else 'GREEN'
+    if temporal_pred is not None:
+        temporal_color = (0, 0, 255) if temp_state == 'RED' else ((0, 255, 255) if temp_state == 'YELLOW' else (0, 255, 0))
+        cv2.putText(frame, f"Temporal Pre: {temp_score:.2f} [{temp_state}]", (x_offset, y_offset), font, font_scale, temporal_color, font_thickness)
+        y_offset += line_height + 5
+
+    # 3. Display Gaze
     gaze = data.get('gaze', 'unknown').upper()
-    cv2.putText(frame, f"Gaze: {gaze}", (x_offset, y_offset), font, font_scale, (255, 255, 0), font_thickness)
-    y_offset += line_height
+    gaze_color = (0, 255, 0) if gaze == "CENTER" else (0, 0, 255)
+    cv2.putText(frame, f"Gaze: {gaze}", (x_offset, y_offset), font, font_scale, gaze_color, font_thickness)
+    y_offset += line_height + 5
+
+    # 4. Display Verified Status (Right Side)
+    is_verified = data.get('is_verified', True) # By default, true until facenet runs
+    v_text = "FACE VERIFIED" if is_verified else "UNVERIFIED PERSON"
+    v_color = (0, 255, 0) if is_verified else (0, 0, 255)
+    (v_w, v_h), _ = cv2.getTextSize(v_text, font, font_scale, font_thickness)
+    cv2.putText(frame, v_text, (w - v_w - 20, 30), font, font_scale, v_color, font_thickness)
 
     # Display Head Pose (Debug Only)
     if debug_mode:
@@ -70,12 +92,13 @@ def draw_ui(frame, data):
         cv2.putText(frame, f"Pitch: {pose['pitch']:.2f}", (x_offset, y_offset), font, font_scale, (255, 255, 0), font_thickness)
         y_offset += line_height
 
-    # Show active events
+    # Show active events (Right Side below Verified Status)
     events = data.get('events', [])
     if events:
-        y_offset += 10
-        cv2.putText(frame, "Alerts:", (x_offset, y_offset), font, font_scale, (0, 0, 255), font_thickness)
-        y_offset += line_height
+        evt_y = 60
+        cv2.putText(frame, "Alerts:", (w - 200, evt_y), font, 0.6, (0, 0, 255), 2)
+        evt_y += line_height
         for e in events:
-            cv2.putText(frame, f"- {e}", (x_offset + 10, y_offset), font, font_scale, (0, 0, 255), font_thickness)
-            y_offset += line_height
+            # Ensure text wraps or aligns right so it doesn't leave the screen 
+            cv2.putText(frame, f"- {e}", (w - 240, evt_y), font, 0.5, (0, 0, 255), 1)
+            evt_y += line_height

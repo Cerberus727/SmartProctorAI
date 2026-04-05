@@ -31,6 +31,11 @@ def compute_iou(box1, box2):
     return inter / union if union > 0 else 0
 
 import os
+import torch
+import ultralytics.nn.tasks
+
+# Fix for PyTorch 2.6+ strict weight loading policy
+torch.serialization.add_safe_globals([ultralytics.nn.tasks.DetectionModel])
 
 class YoloDetector:
     def __init__(self, model_path='yolov8n.pt'):
