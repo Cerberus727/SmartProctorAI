@@ -12,6 +12,22 @@ class TemporalDecisionController:
         self.state = "GREEN"
 
     def update(self, model_output, raw_outputs):
+        # 5. Anti-Stuck Logic: check for cheating signals
+        phone = float(raw_outputs.get("cell_phone", 0.0))
+        gaze_lr = float(raw_outputs.get("gaze_left_right", 0.0))
+        book = float(raw_outputs.get("book", 0.0))
+        mult = float(raw_outputs.get("multiple_persons", 0.0))
+        
+        # Immediate strict overrides for explicit cheating
+        if phone > 0.0:
+            model_output = max(model_output, 0.95)
+        if book > 0.0:
+            model_output = max(model_output, 0.90)
+        if mult > 0.0:
+            model_output = max(model_output, 0.85)
+        if gaze_lr > 0.0:
+            model_output = max(model_output, 0.80)
+        
         # 1. Exponential Moving Average (EMA)
         alpha = 0.7
         smoothed = alpha * model_output + (1 - alpha) * self.prev_smoothed
@@ -24,12 +40,6 @@ class TemporalDecisionController:
         self.recent_preds.append(model_output)
         if len(self.recent_preds) == 5 and all(p < 0.3 for p in self.recent_preds):
             smoothed *= 0.6
-
-        # 5. Anti-Stuck Logic: check for cheating signals
-        phone = float(raw_outputs.get("cell_phone", 0.0))
-        gaze_lr = float(raw_outputs.get("gaze_left_right", 0.0))
-        book = float(raw_outputs.get("book", 0.0))
-        mult = float(raw_outputs.get("multiple_persons", 0.0))
         
         # If no obvious cheating signals, decay faster
         if phone == 0.0 and book == 0.0 and mult == 0.0 and gaze_lr == 0.0:
