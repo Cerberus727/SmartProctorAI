@@ -18,8 +18,8 @@ def get_video_stream(src=0):
             cap_options = []
             if os.name == 'nt':
                 cap_options = [
-                    (index, cv2.CAP_MSMF, None),
                     (index, cv2.CAP_DSHOW, None),
+                    (index, cv2.CAP_MSMF, None),
                     (index, cv2.CAP_ANY, None)
                 ]
             else:
@@ -33,16 +33,17 @@ def get_video_stream(src=0):
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 
                 if cap.isOpened():
-                    # Minimal warm up
-                    time.sleep(0.1)
-                    # Test grab a frame to ensure it's actually streaming and not pure black
+                    # Robust warm up to allow sensor auto-exposure
+                    time.sleep(0.3)
+                    # Test grab frames to drop initial empty buffers and check brightness
                     valid_frame = False
-                    for _ in range(5):
+                    for _ in range(15):
                         ret, test_frame = cap.read()
-                        if ret and test_frame is not None and test_frame.max() > 0:
+                        # A true frame will have some brightness, not just a noisy black pixel
+                        if ret and test_frame is not None and test_frame.mean() > 2.0:
                             valid_frame = True
                             break
-                        time.sleep(0.01)
+                        time.sleep(0.05)
                         
                     if valid_frame:
                         print(f"[INFO] Camera successfully engaged on src {index}")

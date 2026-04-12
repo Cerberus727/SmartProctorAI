@@ -1,68 +1,91 @@
-# Remote Proctoring System
+# AI Remote Proctoring Platform
 
-A robust, localized, computer-vision based proctoring system to monitor examinees in real-time. It uses YOLOv8 for object detection and MediaPipe for facial geometry & behavior analysis to calculate risk scores based on restricted behavior during exams. 
+A full-stack, real-time AI proctoring platform that integrates advanced computer vision pipelines (YOLOv8, MediaPipe, FaceNet, and an LSTM-based Temporal Cheating model) directly into a React-based online testing environment.
 
-## Features
-* **Face Tracking & Head Pose:** Ensures the examinee is looking forward. Checks for looking away or looking down.
-* **Gaze Estimation:** Calculates direction of pupils to assess attention off-screen.
-* **Multi-Face Detection:** Triggers an alarm and tracks total time if more than one person enters the examinee's camera frame.
-* **Electronics Detection:** Uses YOLOv8 to aggressively monitor restricted devices such as Cell Phones, Laptops, Keyboards, Mice, TVs, or Remotes within the camera view.
-* **Risk Engine & Alert Manager:** Constantly computes an adaptive risk score and logs infractions locally.
-* **Session Summaries:** Exports an aggregated human-readable summary out to JSON upon program exit (total time looking away, on phone, multple faces, etc.).
+## System Architecture
+* **Frontend**: React, Vite, Tailwind CSS (Interactive test-taking environment, student/admin dashboards).
+* **Backend**: FastAPI, SQLAlchemy, WebSockets (Secure exam serving, live proctoring events, DB management).
+* **AI Engine**: Python, PyTorch, OpenCV (FaceNet identity verification, Custom LSTM sequence model, Risk & Behavior engines).
 
-## Setup Instructions
+## Key Features
+* **Pre-Exam Face Verification**: Enforces a secure FaceNet enrollment phase (`/verify`) gathering facial embeddings before test access is granted.
+* **Temporal Cheating Detection**: A custom-trained LSTM model processes behavioral event sequences over time to identify complex anomalous patterns.
+* **Face Tracking & Head Pose**: Ensures the examinee is looking forward. Triggers alerts for looking away/down.
+* **Gaze Estimation**: Computes pupil orientation to assess attention off-screen.
+* **Multi-Face Detection**: Identifies if multiple people enter the camera frame during the exam.
+* **Prohibited Objects Detection**: Leverages YOLOv8 to aggressively monitor restricted devices like Cell Phones and Books.
+* **Real-Time Websocket Alerts**: The ML pipeline triggers infractions stored on the backend which reflect instantly on the user's React dashboard.
+* **Auto-Submission**: Enforces automatic test termination upon reaching maximum violation thresholds.
+
+## Installation & Setup
 
 ### 1. Prerequisites
-Make sure you have Python (>=3.8) installed on your system.
+* **Python** (>= 3.8)
+* **Node.js** (>= 18)
 
-### 2. Prepare Virtual Environment
-It is recommended to run this within a virtual environment.
+### 2. Setup the Python Environment
+We highly recommend running the backend and ML services within a virtual environment.
 
 ```bash
+# From the root directory:
+cd DeepLearningFaceDetection
+
+# Create a virtual environment
 python -m venv venv
 
 # Activate on Windows
 .\venv\Scripts\activate
-
 # Activate on Mac/Linux
 source venv/bin/activate
-```
 
-### 3. Install Dependencies
-Make sure you install the required computer vision libraries (YOLO, MediaPipe, OpenCV):
-
-```bash
-# General packages
+# Install required backend and ML dependencies
 pip install -r requirements.txt
-
-# Also ensure you have MediaPipe installed 
+pip install -r backend/requirements.txt
 pip install mediapipe==0.10.9
 ```
+*Note: PyTorch models (FaceNet, Temporal, YOLOv8) will auto-download their weight checkpoints on the first run.*
 
-*Note: Models automatically download their initial weights the first time they run if absent.*
+### 3. Setup the Frontend Environment
+Open a separate terminal for the React frontend:
 
-### 4. Running the Application
-Ensure your active working directory is at the root of the project.
-
-Run the main dashboard loop:
 ```bash
-python proctoring_system/main.py
-```
-Press `q` anytime to exit the camera feed. 
-
-### 5. Testing YOLO Behavior Explicitly
-If you just want to stress-test your object detection/device filtering algorithms:
-```bash
-python proctoring_system/test_best.py
+cd frontend
+npm install
 ```
 
-## Logs and Behaviors 
-- A comprehensive sequence of flags triggered during the session is output sequentially into `events.json`. 
-- An overall duration aggregation is printed into the terminal and saved inside `session_summary.json` at the conclusion of every execution cycle from `main.py`.
+## Running the Application
 
-## Directory Structure
-- `config/` - Houses unified thresholds and settings.
-- `core/` - The logic systems controlling behavioral queues, aggregate risk score computations, and event handling.
-- `input/` - Manages video/webcam frame buffering.
-- `models/` - Wrappers initializing logic around `YOLOv8`, `FaceMesh`, and `HeadPose` estimation pipelines.
-- `utils/` - Global drawing functions for user bounding box interfaces and logging parsers.
+To run the full stack locally, you need to spin up both the backend API server and the frontend React app.
+
+### Terminal 1: Start the Backend & ML Service
+Ensure your Python virtual environment is active.
+
+```bash
+# Navigate to the backend directory
+cd backend
+
+# Run the FastAPI server via Uvicorn
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Terminal 2: Start the Frontend
+```bash
+# Navigate to the frontend directory
+cd frontend
+
+# Spin up the Vite development server
+npm run dev
+```
+
+The platform will now be accessible in your browser at: `http://localhost:5173`
+
+### Standard Testing Flow:
+1. Student accesses **Student Dashboard**.
+2. Clicks **Start Test**.
+3. Enters the **Verification Phase**, where FaceNet captures and verifies 10 embedding references.
+4. Auto-redirects to the **Live Test Phase**, actively protected by the YOLO + Behavior Engine + Temporal model.
+
+## System Logs and Behavior
+- Real-time ML infractions are appended chronologically to `<root>/events.json`.
+- The FastAPI backend systematically watches this file and broadcasts live alert events over WebSockets to the React frontend.
+- Risk Engine scoring logic and trigger metrics can be tuned inside `proctoring_system/core/risk_engine.py` and `proctoring_system/config/settings.py`.

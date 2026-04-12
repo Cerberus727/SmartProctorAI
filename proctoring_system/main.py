@@ -86,18 +86,51 @@ def main():
                 if not verifier.is_enrolled:
                     current_samples, required_samples = verifier.auto_capture(frame)
                     
-                    # Draw enrollment status centered
-                    h, w, _ = frame.shape
-                    text = f"Initializing Proctoring: Face {current_samples}/{required_samples}"
-                    (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-                    text_x = max(0, (w - text_w) // 2)
-                    text_y = max(0, (h + text_h) // 2)
-                    cv2.putText(frame, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
+                    import os
+                    p1 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "events.json"))
+                    p2 = os.path.abspath(os.path.join(os.path.dirname(__file__), "events.json"))
                     
-                    cv2.imshow("Proctoring System", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
-                    continue
+                    if verifier.is_enrolled:
+                        # Just completed enrollment this frame
+                        init_event = {
+                            "event": "VERIFICATION_COMPLETE",
+                            "status": "VERIFIED",
+                            "verified": True,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    else:
+                        init_event = {
+                            "event": "INITIALIZING",
+                            "status": "INITIALIZING",
+                            "verified": False,
+                            "progress": current_samples,
+                            "required": required_samples,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    
+                    # Broadcast the phase status via events log so backend / websockets catch it
+                    for p in [p1, p2]:
+                        try:
+                            with open(p, "a") as f:
+                                f.write(json.dumps(init_event) + "\n")
+                        except Exception:
+                            pass
+
+                    if not verifier.is_enrolled:
+                        # Draw enrollment status centered
+                        h, w, _ = frame.shape
+                        text = f"Initializing Proctoring: Face {current_samples}/{required_samples}"
+                        (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+                        text_x = max(0, (w - text_w) // 2)
+                        text_y = max(0, (h + text_h) // 2)
+                        cv2.putText(frame, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
+                        
+                        cv2.imshow("Proctoring System", frame)
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            break
+                        
+                        # Return/continue early: DO NOT run YOLO, behavior, or risk engines!
+                        continue
                 
                 # Periodically verify the person against the reference image (every 10 frames)
                 if frame_count % 10 == 0:
@@ -212,6 +245,52 @@ def main():
                 behavior_events = behavior_engine.process(gaze, pose, face_count, flags)
                 all_events = list(frame_events.union(behavior_events))
         
+                # --- 4. FACENET VERIFICATION (Identity Mismatch Alert) ---
+                if facenet_result is not None and not facenet_result.get("same_person", True):
+                    if "IDENTITY_MISMATCH" not in all_events:
+                        all_events.append("IDENTITY_MISMATCH")
+                elif not last_verification_status:
+                    if "IDENTITY_MISMATCH" not in all_events:
+                        all_events.append("IDENTITY_MISMATCH")
+
+                # --- 5. TEMPORAL MODEL (Sequence-based Cheating Detection) ---
+                raw_features_dict = {
+                    'timestamp': float(frame_count),
+                    'face_verified': 1.0 if last_verification_status else 0.0,
+                    'num_faces': float(face_count),
+                    'gaze_center': 1.0 if gaze == 'center' else 0.0,
+                    'mouth_open': 1.0 if "TALKING" in all_events else 0.0,
+                    'head_rotation': float(abs(pose.get('yaw', 0.0))) * 100,
+                    'left_iris': 0.0,
+                    'right_iris': 0.0,
+                    'iris_diff': 0.0,
+                    'cell_phone': 1.0 if phone_visible else 0.0,
+                    'multiple_persons': 1.0 if face_count > 1 else 0.0,
+                    'book': 1.0 if flags.get("book") else 0.0,
+                    'screen': 1.0 if "SCREEN" in all_events else 0.0,
+                    'person': 1.0 if face_count > 0 else 0.0,
+                    'mouth_ratio': 0.0,
+                    'eye_ratio': 0.0,
+                    'head_pose_x': float(pose.get('pitch', 0.0)) * 100,
+                    'head_pose_y': float(pose.get('yaw', 0.0)) * 100,
+                    'head_pose_z': float(pose.get('roll', 0.0)),
+                    'face_distance': 0.0,
+                    'f_distance': 0.0,
+                    'gaze_left_right': 1.0 if gaze in ['left', 'right', 'down'] else 0.0,
+                    'suspicious_movement': 1.0 if "LOOKING_AWAY" in all_events else 0.0
+                }
+                
+                # Push into frame buffer and predict
+                temporal_manager.process_frame_features(raw_features_dict)
+                temporal_pred = temporal_manager.get_temporal_prediction()
+                if temporal_pred is not None:
+                    # In temporal_inference.py, it returns a dict with 'score' or float! 
+                    score_val = temporal_pred if isinstance(temporal_pred, float) else temporal_pred.get("score", 0.0)
+                    current_temporal_pred = score_val
+                    if score_val > 0.7: # threshold for cheating probability
+                        if "TEMPORAL_CHEATING" not in all_events:
+                            all_events.append("TEMPORAL_CHEATING")
+
                 # Risk Scoring and Alerting with FaceNet identity result passed down
                 risk_score, reasons, prioritized_events = risk_engine.compute(flags, all_events, facenet_result=facenet_result)
 
@@ -274,37 +353,7 @@ def main():
                 if phone_visible and last_phone_bbox is not None:
                     draw_detections.append({'class_name': 'cell phone', 'bbox': last_phone_bbox})
 
-                # --- Temporal Model Integration ---
-                import math
-                raw_features_dict = {
-                    'timestamp': float(frame_count),
-                    'face_verified': 1.0 if last_verification_status else 0.0,
-                    'num_faces': float(face_count),
-                    'gaze_center': 1.0 if gaze == 'center' else 0.0,
-                    'mouth_open': 1.0 if "TALKING" in all_events else 0.0,
-                    'head_rotation': float(abs(pose.get('yaw', 0.0))) * 100,
-                    'left_iris': 0.0,
-                    'right_iris': 0.0,
-                    'iris_diff': 0.0,
-                    'cell_phone': 1.0 if phone_visible else 0.0,
-                    'multiple_persons': 1.0 if face_count > 1 else 0.0,
-                    'book': 1.0 if flags.get("book") else 0.0,
-                    'screen': 1.0 if "SCREEN" in all_events else 0.0,
-                    'person': 1.0 if face_count > 0 else 0.0,
-                    'mouth_ratio': 0.0,
-                    'eye_ratio': 0.0,
-                    'head_pose_x': float(pose.get('pitch', 0.0)) * 100,
-                    'head_pose_y': float(pose.get('yaw', 0.0)) * 100,
-                    'head_pose_z': float(pose.get('roll', 0.0)),
-                    'face_distance': 0.0,
-                    'f_distance': 0.0,
-                    'gaze_left_right': 1.0 if gaze in ['left', 'right', 'down'] else 0.0,
-                    'suspicious_movement': 1.0 if "LOOKING_AWAY" in all_events else 0.0
-                }
-                temporal_manager.process_frame_features(raw_features_dict)
-                temporal_pred = temporal_manager.get_temporal_prediction()
-                if temporal_pred is not None:
-                    current_temporal_pred = temporal_pred
+                # Render frame UI based on the latest data
                 frame_data["temporal_pred"] = current_temporal_pred
 
                 # Rendering

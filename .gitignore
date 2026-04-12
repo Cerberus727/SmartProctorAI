@@ -16,3 +16,5 @@ session_summary.json
 # OS files
 .DS_Store
 Thumbs.db
+debug_*.py
+node_modules/
