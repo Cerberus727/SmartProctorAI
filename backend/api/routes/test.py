@@ -57,7 +57,18 @@ def get_questions(test_id: int, db: Session = Depends(get_db)):
 
 @router.post("/submit", response_model=ResponseModel)
 def submit_test(sub: SubmissionSchema, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    db_sub = Submission(user_id=current_user.id, test_id=sub.test_id, score=sub.score)
+    # Calculate score gracefully instead of trusting frontend
+    score = 0
+    total_questions = db.query(Question).filter(Question.test_id == sub.test_id).count()
+    if total_questions > 0:
+        correct_count = 0
+        for ans in sub.answers:
+            q = db.query(Question).filter(Question.id == ans.question_id).first()
+            if q and q.correct_answer and ans.selected_answer and q.correct_answer.upper() == ans.selected_answer.upper():
+                correct_count += 1
+        score = round((correct_count / total_questions) * 100, 2)
+
+    db_sub = Submission(user_id=current_user.id, test_id=sub.test_id, score=score)
     db.add(db_sub)
     db.commit()
     db.refresh(db_sub)
@@ -76,8 +87,23 @@ def get_submissions(db: Session = Depends(get_db)):
         user = db.query(User).filter(User.id == s.user_id).first()
         test = db.query(Test).filter(Test.id == s.test_id).first()
         
-        # Fetch proctor logs
-        logs = db.query(ProctorLog).filter(ProctorLog.user_id == s.user_id, ProctorLog.test_id == s.test_id).all()
+        # Find previous submission to bound the logs properly so they don't pile up!
+        prev_sub = db.query(Submission).filter(
+            Submission.user_id == s.user_id,
+            Submission.test_id == s.test_id,
+            Submission.submitted_at < s.submitted_at
+        ).order_by(Submission.submitted_at.desc()).first()
+        
+        # Fetch proctor logs isolated only for THIS attempt timeframe
+        query = db.query(ProctorLog).filter(
+            ProctorLog.user_id == s.user_id, 
+            ProctorLog.test_id == s.test_id,
+            ProctorLog.timestamp <= s.submitted_at
+        )
+        if prev_sub:
+            query = query.filter(ProctorLog.timestamp > prev_sub.submitted_at)
+            
+        logs = query.all()
         log_data = [{"event_type": l.event_type, "timestamp": l.timestamp.isoformat()} for l in logs]
         
         data.append({
