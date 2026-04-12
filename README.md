@@ -16,6 +16,7 @@ A full-stack, real-time AI proctoring platform that integrates advanced computer
 * **Prohibited Objects Detection**: Leverages YOLOv8 to aggressively monitor restricted devices like Cell Phones and Books.
 * **Real-Time Websocket Alerts**: The ML pipeline triggers infractions stored on the backend which reflect instantly on the user's React dashboard.
 * **Auto-Submission**: Enforces automatic test termination upon reaching maximum violation thresholds.
+* **Silero VAD Audio Streaming**: Captures real-time audio blobs directly from the browser natively, streams them via WebSockets, and evaluates Voice Activity Detection on the backend to flag speaking.
 
 ## Installation & Setup
 
@@ -40,10 +41,9 @@ source venv/bin/activate
 
 # Install required backend and ML dependencies
 pip install -r requirements.txt
-pip install -r backend/requirements.txt
-pip install mediapipe==0.10.9
+# Requires Torchaudio & Sounddevice for Silero VAD
 ```
-*Note: PyTorch models (FaceNet, Temporal, YOLOv8) will auto-download their weight checkpoints on the first run.*
+*Note: PyTorch models (FaceNet, Temporal, YOLOv8, and Silero VAD) will auto-download their weight checkpoints on the first run.*
 
 ### 3. Setup the Frontend Environment
 Open a separate terminal for the React frontend:

@@ -23,6 +23,7 @@ from facenet_module.face_verifier import FaceVerifier
 from core.behavior_engine import BehaviorEngine
 from core.risk_engine import RiskEngine
 from core.alert_manager import AlertManager
+from core.audio_engine import AudioEngine
 from models.temporal_inference import TemporalIntegrationManager
 from utils.drawing import draw_boxes, draw_tracks
 from utils.helpers import get_rects
@@ -63,6 +64,10 @@ def main():
             temporal_manager = TemporalIntegrationManager()
             current_temporal_pred = 0.0
 
+            print("[INFO] Initializing Audio Engine Monitor...")
+            audio_engine = AudioEngine()
+            audio_engine.start()
+
             print("[INFO] System ready! Press 'q' to quit.")
             DEBUG = False  # Set to True to display extra debug info
 
@@ -77,6 +82,8 @@ def main():
     
             # Event tracking state
             active_events = {}
+            
+            speech_counter = 0
 
             for frame in stream:
                 frame_count += 1
@@ -219,6 +226,19 @@ def main():
                     frame_events.add("HEADPHONE")
                 if flags["book"]:
                     frame_events.add("BOOK")
+
+                # --- 6. AUDIO MONITORING INTEGRATION ---
+                # Lightweight purely O(1) fetch from the background VAD thread
+                audio_state = audio_engine.get_audio_event()
+                
+                # Apply smoothing to avoid false positives
+                if audio_state.get("speech", False):
+                    speech_counter += 1
+                else:
+                    speech_counter = max(0, speech_counter - 1)
+                
+                if speech_counter >= 2:
+                    frame_events.add("SPEECH_DETECTED")
 
                 # MediaPipe Face Mesh & Behavior Processing
                 gaze = "unknown"
@@ -372,11 +392,15 @@ def main():
         finally:
             if stream and hasattr(stream, 'close'):
                 stream.close()
+            try: audio_engine.stop() 
+            except: pass
             cv2.destroyAllWindows()
 
     finally:
         if stream and hasattr(stream, 'close'):
             stream.close()
+        try: audio_engine.stop()
+        except: pass
         cv2.destroyAllWindows()
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ export default function TestPage() {
   const [timeLeft, setTimeLeft] = useState(3600);
   let violationsCount = useRef(0);
   const [streamActive, setStreamActive] = useState(true);
+  const wsRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
 
   const submitTest = async () => {
     try {
@@ -37,7 +39,7 @@ export default function TestPage() {
   };
 
   const checkViolations = () => {
-     if (violationsCount.current >= 5) {
+     if (violationsCount.current >= 10) {
          toast.error("Maximum violations reached. Auto-submitting exam.", {duration: 5000});
          submitTest();
      }
@@ -82,12 +84,45 @@ export default function TestPage() {
       console.log("Proctor start error", err);
     });
 
+    // --- Audio Streaming via WebSocket ---
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//localhost:8000/ws`;
+    wsRef.current = new WebSocket(wsUrl);
+
+    wsRef.current.onopen = async () => {
+       console.log("TestPage WS Connected for Audio Stream");
+       wsRef.current.send(JSON.stringify({ type: "audio_start" }));
+       try {
+           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+           mediaRecorderRef.current = new MediaRecorder(stream);
+           
+           mediaRecorderRef.current.ondataavailable = (event) => {
+               // Send audio binary data to backend
+               if (event.data.size > 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                   wsRef.current.send(event.data);
+               }
+           };
+           mediaRecorderRef.current.start(1000); // 1 second chunks
+       } catch (e) {
+           toast.error("Microphone access denied. Audio monitoring disabled.");
+           console.error("Mic error:", e);
+       }
+    };
+
     return () => {
       clearInterval(timer);
       document.removeEventListener("contextmenu", handleContext);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("violation_detected", handleViolationEvent);
+      
+      // Cleanup Audio Stream
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+         mediaRecorderRef.current.stop();
+         mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      if (wsRef.current) wsRef.current.close();
+      
       stopCamera();
     };
   }, [testId]);
@@ -143,7 +178,7 @@ export default function TestPage() {
                  <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500"/>
                  <div>
                    <p>Do not look away from the screen. Your webcam feed is analyzed via secure AI models.</p>
-                   <p className="mt-2 text-red-400 font-bold">5 Violations = Auto-Submit</p>
+                   <p className="mt-2 text-red-400 font-bold">10 Violations = Auto-Submit</p>
                  </div>
              </div>
          </div>

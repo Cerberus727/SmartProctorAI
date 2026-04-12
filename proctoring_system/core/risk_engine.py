@@ -9,6 +9,7 @@ class RiskEngine:
             "MULTIPLE_FACES_DETECTED": "HIGH",
             "PHONE_AND_LOOKING_DOWN": "HIGH",
             "DIFFERENT_PERSON": "HIGH",
+            "SPEECH_DETECTED": "HIGH",
             "LOOKING_AWAY": "MEDIUM",
             "FACE_NOT_VISIBLE": "MEDIUM",
             "LOOKING_DOWN": "LOW"
@@ -35,7 +36,10 @@ class RiskEngine:
             prioritized_events[level].append(event)
             
             # Weighted formula: Accumulate risk dynamically based on severity
-            if event == "DIFFERENT_PERSON":
+            if event == "SPEECH_DETECTED":
+                risk_step += 0.30
+                reasons.append(f"{event} (HIGH)")
+            elif event == "DIFFERENT_PERSON":
                 risk_step += 0.15
                 reasons.append(f"{event} (HIGH)")
             elif event == "PHONE" or event == "PHONE_AND_LOOKING_DOWN":
